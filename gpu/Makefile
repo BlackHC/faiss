@@ -74,11 +74,13 @@ CUOBJ=      impl/BroadcastSum.o \
 
 .cpp.o:
 	$(CC11) -std=c++11 -fPIC -m64 -Wall -g -Wno-sign-compare -O3 -fopenmp \
-         -c $< -o $@ $(EXTRAFLAGS) $(CUDACFLAGS)
+         -c $< -o $@ $(EXTRAFLAGS) $(CUDACFLAGS) \
+         -I /usr/local/google/home/blackhc/git/googletest/googletest/include
 
 .cu.o:
 	$(NVCC) $(NVCCFLAGS) -g -O3 \
-         -c $< -o $@ $(EXTRAFLAGS)
+         -c $< -o $@ $(EXTRAFLAGS) \
+         -I /usr/local/google/home/blackhc/git/googletest/googletest/include
 
 
 $(LIBNAME).a: $(CPPOBJ) $(CUOBJ)
@@ -89,6 +91,16 @@ test/demo_ivfpq_indexing_gpu: test/demo_ivfpq_indexing_gpu.cpp \
 	$(LIBNAME).a ../libfaiss.a
 	$(NVCC) $(NVCCFLAGS) -o $@ $^ -Xcompiler -fopenmp -lcublas \
 	$(BLASLDFLAGSNVCC)
+
+test/TestGpuSelect: test/TestGpuSelect.cu	$(LIBNAME).a ../libfaiss.a test/TestUtils.o
+	$(NVCC) --verbose $(NVCCFLAGS) -Xcompiler -fopenmp -lcublas \
+	-Xlinker -g \
+	-o $@ $^ \
+	-Xlinker /usr/lib/libopenblas.a -Xlinker /usr/lib/lapack/liblapack_pic.a  \
+	-Xlinker /usr/local/google/home/blackhc/git/googletest/mybuild/libgtest_main.a \
+	-Xlinker /usr/local/google/home/blackhc/git/googletest/mybuild/libgtest.a \
+	-Xlinker /usr/lib/gcc/i686-linux-gnu/4.7/64/libgfortran.a \
+	-I /usr/local/google/home/blackhc/git/googletest/googletest/include
 
 #############################################################
 # Python interface
@@ -127,6 +139,8 @@ dep:
              cpp -MM -std=gnu++0x $$i; \
 	done
 
+
+test/TestUtils.o: test/TestUtils.cpp
 
 GpuResources.cpp/GpuResources.o: GpuResources.cpp GpuResources.h utils/DeviceMemory.h \
  utils/DeviceUtils.h

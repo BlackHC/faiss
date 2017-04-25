@@ -46,11 +46,11 @@ void testForSize(int rows, int cols, int k, bool dir, bool warp) {
     }
 
     auto dirFalseFn =
-      [](std::pair<int, float>& a, std::pair<int, float>& b) {
+      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
       return a.second < b.second;
     };
     auto dirTrueFn =
-      [](std::pair<int, float>& a, std::pair<int, float>& b) {
+      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
       return a.second > b.second;
     };
 
