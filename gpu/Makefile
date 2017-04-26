@@ -102,6 +102,16 @@ test/TestGpuSelect: test/TestGpuSelect.cu	$(LIBNAME).a ../libfaiss.a test/TestUt
 	-Xlinker /usr/lib/gcc/i686-linux-gnu/4.7/64/libgfortran.a \
 	-I /usr/local/google/home/blackhc/git/googletest/googletest/include
 
+test/BenchmarkGpuSelect: test/BenchmarkGpuSelect.cu	$(LIBNAME).a ../libfaiss.a test/TestUtils.o
+	$(NVCC) --verbose $(NVCCFLAGS) -Xcompiler -fopenmp -lcublas \
+	-Xlinker -g \
+	-o $@ $^ \
+	-Xlinker /usr/lib/libopenblas.a -Xlinker /usr/lib/lapack/liblapack_pic.a  \
+	-Xlinker /usr/local/google/home/blackhc/git/googletest/mybuild/libgtest_main.a \
+	-Xlinker /usr/local/google/home/blackhc/git/googletest/mybuild/libgtest.a \
+	-Xlinker /usr/lib/gcc/i686-linux-gnu/4.7/64/libgfortran.a \
+	-I /usr/local/google/home/blackhc/git/googletest/googletest/include
+
 #############################################################
 # Python interface
 #############################################################
