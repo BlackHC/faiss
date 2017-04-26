@@ -103,7 +103,7 @@ test/TestGpuSelect: test/TestGpuSelect.cu	$(LIBNAME).a ../libfaiss.a test/TestUt
 	-I /usr/local/google/home/blackhc/git/googletest/googletest/include
 
 test/BenchmarkGpuSelect: test/BenchmarkGpuSelect.cu	$(LIBNAME).a ../libfaiss.a test/TestUtils.o
-	$(NVCC) --verbose $(NVCCFLAGS) -Xcompiler -fopenmp -lcublas \
+	$(NVCC) $(NVCCFLAGS) -Xcompiler -fopenmp -lcublas \
 	-Xlinker -g \
 	-o $@ $^ \
 	-Xlinker /usr/lib/libopenblas.a -Xlinker /usr/lib/lapack/liblapack_pic.a  \
@@ -1185,3 +1185,5 @@ utils/warpselect/WarpSelectFloatT1024.o: utils/warpselect/WarpSelectFloatT1024.c
  utils/warpselect/../ReductionOperators.cuh \
  utils/warpselect/../Limits.cuh utils/warpselect/../Pair.cuh \
  utils/warpselect/../MathOperators.cuh
+
+

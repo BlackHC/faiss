@@ -13,6 +13,7 @@
 #include "../utils/BlockSelectKernel.cuh"
 #include "../utils/WarpSelectKernel.cuh"
 #include "../utils/HostTensor.cuh"
+#include "../utils/Timer.h"
 #include "../utils/DeviceTensor.cuh"
 #include "../test/TestUtils.h"
 #include <algorithm>
@@ -20,13 +21,18 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#include <cuda_profiler_api.h>
+#include "/usr/local/google/home/blackhc/git/benchmark/src/stat.h"
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-void testForSize(int batch_size, int n, int k, bool dir, bool warp) {
+benchmark::Stat1_f testForSize(int batch_size, int n, int k, bool dir, bool warp) {
+  benchmark::Stat1_f stats;
+  faiss::gpu::CpuTimer timer;
+
   std::vector<float> v = faiss::gpu::randVecs(batch_size, n);
   faiss::gpu::HostTensor<float, 2, true> hostVal({batch_size, n});
 
@@ -36,87 +42,56 @@ void testForSize(int batch_size, int n, int k, bool dir, bool warp) {
     }
   }
 
-  // row -> (val -> idx)
-  std::unordered_map<int, std::vector<std::pair<int, float>>> hostOutValAndInd;
-  for (int r = 0; r < batch_size; ++r) {
-    std::vector<std::pair<int, float>> closest;
-
-    for (int c = 0; c < n; ++c) {
-      closest.emplace_back(c, (float) hostVal[r][c]);
-    }
-
-    auto dirFalseFn =
-      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
-      return a.second < b.second;
-    };
-    auto dirTrueFn =
-      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
-      return a.second > b.second;
-    };
-
-    std::sort(closest.begin(), closest.end(), dir ? dirTrueFn : dirFalseFn);
-    hostOutValAndInd.emplace(r, closest);
-  }
-
   // Select top-k on GPU
   faiss::gpu::DeviceTensor<float, 2, true> gpuVal(hostVal, 0);
   faiss::gpu::DeviceTensor<float, 2, true> gpuOutVal({batch_size, k});
   faiss::gpu::DeviceTensor<int, 2, true> gpuOutInd({batch_size, k});
 
-  if (warp) {
-    faiss::gpu::runWarpSelect(gpuVal, gpuOutVal, gpuOutInd, dir, k, 0);
-  } else {
-    faiss::gpu::runBlockSelect(gpuVal, gpuOutVal, gpuOutInd, dir, k, 0);
+  for (int i = 0 ; i < 20 ; i++) {
+    cudaDeviceSynchronize();
+    float start_time = timer.elapsedMilliseconds();
+    if (warp) {
+      faiss::gpu::runWarpSelect(gpuVal, gpuOutVal, gpuOutInd, dir, k, 0);
+    } else {
+      faiss::gpu::runBlockSelect(gpuVal, gpuOutVal, gpuOutInd, dir, k, 0);
+    }
+    cudaDeviceSynchronize();
+
+    float end_time = timer.elapsedMilliseconds();
+    float delta_time = end_time - start_time;
+
+    // Allow one burn-in iteration.
+    if (i > 0) {
+      stats += benchmark::Stat1_f(delta_time);
+    }
   }
 
-  // Copy back to CPU
-  faiss::gpu::HostTensor<float, 2, true> outVal(gpuOutVal, 0);
-  faiss::gpu::HostTensor<int, 2, true> outInd(gpuOutInd, 0);
+  return stats;
+}
 
-  for (int r = 0; r < batch_size; ++r) {
-    std::unordered_map<int, int> seenIndices;
+TEST(TestGpuSelect, test) {
+  faiss::gpu::CpuTimer timer;
 
-    for (int i = 0; i < k; ++i) {
-      float gpuV = outVal[r][i];
-      float cpuV = hostOutValAndInd[r][i].second;
-
-      EXPECT_EQ(gpuV, cpuV) <<
-        "batch_size " << batch_size << " n " << n << " k " << k << " dir " << dir
-                << " row " << r << " ind " << i;
-
-      // If there are identical elements in a row that should be
-      // within the top-k, then it is possible that the index can
-      // differ, because the order in which the GPU will see the
-      // equivalent values is different than the CPU (and will remain
-      // unspecified, since this is affected by the choice of
-      // k-selection algorithm that we use)
-      int gpuInd = outInd[r][i];
-      int cpuInd = hostOutValAndInd[r][i].first;
-
-      // We should never see duplicate indices, however
-      auto itSeenIndex = seenIndices.find(gpuInd);
-
-      EXPECT_EQ(itSeenIndex, seenIndices.end()) <<
-        "Row " << r << " user index " << gpuInd << " was seen at both " <<
-        itSeenIndex->second << " and " << i;
-
-      seenIndices[gpuInd] = i;
-
-      if (gpuInd != cpuInd) {
-        // Gather the values from the original data via index; the
-        // values should be the same
-        float gpuGatherV = hostVal[r][gpuInd];
-        float cpuGatherV = hostVal[r][cpuInd];
-
-        EXPECT_EQ(gpuGatherV, cpuGatherV) <<
-          "batch_size " << batch_size << " n " << n << " k " << k << " dir " << dir
-                  << " row " << r << " ind " << i << " source ind "
-                  << gpuInd << " " << cpuInd;
+  printf("B/W batch     n   k     avg (ms)   stddev     throughput\n");
+  printf("========================================================\n");
+  const int batch_sizes[] = {1, 32, 64};
+  const int ns[] = {50000, 500000, 2000000, 2048,32768,8388608};
+  const int ks[] = {10,50,100};
+  for (int warp = 0 ; warp <= 1 ; warp++) {
+    for (int batch_size : batch_sizes) {
+      for(int n : ns) {
+        for (int k : ks) {
+          bool use_warp = warp == 1;
+          auto timings = testForSize(batch_size, n, k, false, use_warp);
+          float throughputMBS = (batch_size * n * 4LL + batch_size * k * 8) / 1024 / double(timings.Mean()) * 1000 / 1024;
+          printf("%1s %3i %10i %3i %10.3f %10.3f %10.3fMB/s\n", use_warp ? "W" : "B", batch_size, n, k, timings.Mean(), timings.StdDev(), throughputMBS);
+        }
       }
     }
   }
 }
 
+#if 0
 // General test
 TEST(TestGpuSelect, test) {
   for (int i = 0; i < 10; ++i) {
@@ -186,3 +161,4 @@ TEST(TestGpuSelect, testExactWarp) {
     testForSize(batch_size, n, n, dir, true);
   }
 }
+#endif
