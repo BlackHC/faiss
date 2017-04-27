@@ -75,7 +75,7 @@ TEST(TestGpuSelect, test) {
   printf("B/W batch     n   k     avg (ms)   stddev     throughput\n");
   printf("========================================================\n");
   const int batch_sizes[] = {1, 32, 64};
-  const int ns[] = {50000, 500000, 2000000, 2048,32768,8388608};
+  const int ns[] = {50000, 500000, 20000000, 2048,32768, 8388608};
   const int ks[] = {10,50,100};
   for (int warp = 0 ; warp <= 1 ; warp++) {
     for (int batch_size : batch_sizes) {
